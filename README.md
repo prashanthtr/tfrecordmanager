@@ -1,8 +1,8 @@
-# Write audio data to tfrecords format for training Neural networks
+# Write and read audio data to tfrecords format for training Neural networks
 
 TFrecordmananger is one of the record formatting manager used in DSGenerator to generate parameter files.
 
-Within the context of DSGenerator, Tfrecords are specified in the custom configuration file as "Tfrecords" for the key value *"recordFormat"*. In the config file:
+Within the context of DSGenerator, Tfrecords are specified in the custom configuration file as "Tfrecords" for the key value *"recordFormat"*. In the configuration file (for DSGenerator):
 
 		"recordFormat": "tfrecords",
 
@@ -36,4 +36,12 @@ The example describes features for the parameter value of *cf* (center frequency
 For fixed parameters in the configuration files, the minval and maxval for synth and user parameters are set to infinity.
 
 
+## Read tfrecords
 
+For human verification, tfrecordManager also provides a *readTf.py* and Notebook to read and print tfrecords in json format. Instructions to read sample tfrecord for verification are:
+
+		python readTf.py --filename [filename] --fileDir [file directory]
+		python readTf.py --filename sampleDir/sample.tfrecord 
+		python readTf.py --fileDir sampleDir
+
+The reader for Tfrecords takes a single file or a folder as input to display human-readable version of tfrecords. 
