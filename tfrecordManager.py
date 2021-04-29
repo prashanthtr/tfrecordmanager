@@ -9,7 +9,7 @@ import os
 
 class tfrecordManager():
 
-    def __init__(self, pfName, outpath, soundDuration, segment):
+    def __init__(self, pfName, audio, outpath, soundDuration, segment):
 
         self.featureList = []
         self.featureObject = {}
@@ -20,6 +20,8 @@ class tfrecordManager():
                 value=[pfName.encode('utf-8')]))
         self.featureObject["soundDuration"] = tf.train.Feature(float_list=tf.train.FloatList(
                 value=soundDuration))
+        self.featureObject["audio"] = tf.train.Feature(float_list=tf.train.FloatList(
+                value=audio))
         self.featureObject["segmentNum"] = tf.train.Feature(int64_list=tf.train.Int64List(
                 value=[segment]))
 
