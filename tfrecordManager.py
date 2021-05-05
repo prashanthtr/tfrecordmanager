@@ -6,16 +6,22 @@
 
 import tensorflow as tf
 import os
+import glob
 
 class tfrecordManager():
 
-    def __init__(self, pfName, audio, outpath, soundDuration, segment):
+    def __init__(self):
 
         self.featureList = []
         self.featureObject = {}
-        self.outpath = outpath
-        self.pfname = pfName
+        self.recordsRead = 0
+        #self.outpath = outpath
+        #self.pfname = pfName
+        # self.shard_size = shard_size
+        #self.totalDuration = totalDuration #Total hours/seconds of sound in the dataset 
+        #self.sampleRate = sampleRate
 
+    def __addFeatureData__(self, pfName, soundDuration, audio, segmentNum):
         self.featureObject["pfname"] = tf.train.Feature(bytes_list=tf.train.BytesList(
                 value=[pfName.encode('utf-8')]))
         self.featureObject["soundDuration"] = tf.train.Feature(float_list=tf.train.FloatList(
@@ -23,13 +29,12 @@ class tfrecordManager():
         self.featureObject["audio"] = tf.train.Feature(float_list=tf.train.FloatList(
                 value=audio))
         self.featureObject["segmentNum"] = tf.train.Feature(int64_list=tf.train.Int64List(
-                value=[segment]))
+                value=[segmentNum]))
 
     ''' Takes common parameters for all parameters from Config file '''
     ''' pfname: Full file name with parameters and values '''
     ''' Sounduration: Array with [st, end time]'''
     ''' Segment: Nth even Segment number within sound duration'''
-
     def __addParam__(self, paramArr, paramValue):
 
         paramNm = paramArr["synth_pname"]
@@ -54,11 +59,10 @@ class tfrecordManager():
             value= [paramArr['synth_maxval']] if hasattr(self.featureObject, paramNm+"_synth_maxval") else [float('inf')]))
 
     '''use specific values for each parameter to train list of indexed features. Generate record'''
-    def __tfgenerate__(self):
+    def __tfwriteOne__(self):
 
         self.featureList = tf.train.Features(feature=self.featureObject)
-
-        self.training = tf.train.Example(features=self.featureList)
+        self.training = tf.train.Example(features=self.featureList) 
 
         outRecord = self.pfname.split(".params")[0]+'.tfrecord'
         print("writing to ", outRecord)
@@ -81,3 +85,102 @@ class tfrecordManager():
           example = tf.train.Example()
           example.ParseFromString(raw_record.numpy())
           print(example)
+
+    def __tfwriteN__(self, outrecord, pfnames, soundDurations, segmentNum, audioSegments, userParam, synthParam, paramArr, fixedParams, beg, end):
+
+        '''write TF records in shards format'''
+        '''Usage of tfrecords with single record per file'''                
+    
+        print("writing to ", outrecord)
+
+        with tf.io.TFRecordWriter(outrecord) as writer:
+
+            '''Enumerate parameters'''
+            for index in range(beg, end): # iterating through a caretesian product of lists
+
+                '''Stepping through enumerated dataset'''
+                userP = userParam[index]
+                synthP = synthParam[index]
+
+                self.__addFeatureData__(pfnames[index-beg], soundDurations[index-beg], audioSegments[index-beg], segmentNum[index-beg])
+            
+                for pnum in range(len(paramArr)):
+                    # paramArr[pnum]['synth_units'], paramArr[pnum]['user_nvals'], paramArr[pnum]['user_minval'], paramArr[pnum]['user_maxval'], paramArr[pnum]['synth_minval'], paramArr[pnum]['synth_maxval']
+                    self.__addParam__(paramArr[pnum], userP[pnum])
+
+                for pnum in range(len(fixedParams)):
+                    self.__addParam__(fixedParams[pnum], fixedParams[pnum]["synth_val"])
+
+                self.featureList = tf.train.Features(feature=self.featureObject)
+                self.training = tf.train.Example(features=self.featureList)
+                writer.write(self.training.SerializeToString())
+        
+                self.featureList = []
+                self.featureObject = {}
+
+
+    def __printRecord__(self, filename):
+
+        raw_dataset = tf.data.TFRecordDataset(filename)
+        tfToJSon = {}
+        for raw_record in raw_dataset.take(1):
+          tfToJSon = tf.train.Example()
+          tfToJSon.ParseFromString(raw_record.numpy())
+        return tfToJSon
+
+    def __getFeatures__(self,data_record):
+
+        feature_list = []
+
+        for key, value in data_record.features.feature.items():
+            #print(key,value.WhichOneof('kind'))
+            feature_list.append([key,value.WhichOneof('kind')])
+
+        return feature_list
+
+    def __readRecord__(self,data_record, feature_list):
+    
+        features_spec = {}
+
+        for f in feature_list:
+            key = f[0]
+            value = f[1]
+
+            if value == "float_list":
+                features_spec[key] = tf.io.FixedLenSequenceFeature([], tf.float32, allow_missing=True)
+            elif value == "int64_list":
+                features_spec[key] = tf.io.FixedLenSequenceFeature([], tf.int64, allow_missing=True)
+            elif value == "bytes_list":
+                features_spec[key] = tf.io.FixedLenSequenceFeature([], tf.string, allow_missing=True)
+            else: 
+                print("no case")
+
+        sample = tf.io.parse_single_example(data_record, features_spec)
+        self.recordsRead += 1
+        print(sample, '\n')
+        return sample
+
+    def __readOne__(self,filename):
+        
+        feature_list = self.__getFeatures__(self.__printRecord__(filename))
+        dataset = tf.data.TFRecordDataset(filename)
+
+        for element in dataset:
+            rec = self.__readRecord__(element, feature_list)
+            #storeRecord.append(rec)
+
+        print("Read ", self.recordsRead, "from file ", filename)
+
+    '''Limtiation is that it gets features only once from a element in dataset. I.e., all elements of dataset have same organization'''
+    def __readDirectory__(self,dirName):
+        
+        path = os.path.abspath(dirName)
+        filelist = glob.glob(path + '/*.tfrecord')
+
+        feature_list = self.__getFeatures__(self.__printRecord__(filelist)) # get features from one list
+        dataset = tf.data.TFRecordDataset(filelist)
+
+        for element in dataset:
+            self.__readRecord__(element, feature_list)
+
+        print("Read ", self.recordsRead, "from directory ", dirName)
