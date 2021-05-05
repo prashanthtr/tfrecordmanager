@@ -59,12 +59,12 @@ class tfrecordManager():
             value= [paramArr['synth_maxval']] if hasattr(self.featureObject, paramNm+"_synth_maxval") else [float('inf')]))
 
     '''use specific values for each parameter to train list of indexed features. Generate record'''
-    def __tfwriteOne__(self):
+    def __tfwriteOne__(self, pfname):
 
         self.featureList = tf.train.Features(feature=self.featureObject)
         self.training = tf.train.Example(features=self.featureList) 
 
-        outRecord = self.pfname.split(".params")[0]+'.tfrecord'
+        outRecord = pfname.split(".params")[0]+'.tfrecord'
         print("writing to ", outRecord)
         with tf.io.TFRecordWriter(outRecord) as writer:
             writer.write(self.training.SerializeToString())
@@ -86,7 +86,7 @@ class tfrecordManager():
           example.ParseFromString(raw_record.numpy())
           print(example)
 
-    def __tfwriteN__(self, outrecord, pfnames, soundDurations, segmentNum, audioSegments, userParam, synthParam, paramArr, fixedParams, beg, end):
+    def __tfwriteN__(self, outrecord, pfnames, soundDurations, segmentNum, audioSegments, userParam, synthParam, paramArr, fixedParams, numChunks, beg, end):
 
         '''write TF records in shards format'''
         '''Usage of tfrecords with single record per file'''                
@@ -102,22 +102,24 @@ class tfrecordManager():
                 userP = userParam[index]
                 synthP = synthParam[index]
 
-                self.__addFeatureData__(pfnames[index-beg], soundDurations[index-beg], audioSegments[index-beg], segmentNum[index-beg])
+                for v in range(numChunks):
+
+                    pfind = (index-beg)*numChunks
+                    self.__addFeatureData__(pfnames[pfind+v], soundDurations[pfind+v], audioSegments[pfind+v], segmentNum[pfind+v])
+                
+                    for pnum in range(len(paramArr)):
+                        # paramArr[pnum]['synth_units'], paramArr[pnum]['user_nvals'], paramArr[pnum]['user_minval'], paramArr[pnum]['user_maxval'], paramArr[pnum]['synth_minval'], paramArr[pnum]['synth_maxval']
+                        self.__addParam__(paramArr[pnum], userP[pnum])
+
+                    for pnum in range(len(fixedParams)):
+                        self.__addParam__(fixedParams[pnum], fixedParams[pnum]["synth_val"])
+
+                    self.featureList = tf.train.Features(feature=self.featureObject)
+                    self.training = tf.train.Example(features=self.featureList)
+                    writer.write(self.training.SerializeToString())
             
-                for pnum in range(len(paramArr)):
-                    # paramArr[pnum]['synth_units'], paramArr[pnum]['user_nvals'], paramArr[pnum]['user_minval'], paramArr[pnum]['user_maxval'], paramArr[pnum]['synth_minval'], paramArr[pnum]['synth_maxval']
-                    self.__addParam__(paramArr[pnum], userP[pnum])
-
-                for pnum in range(len(fixedParams)):
-                    self.__addParam__(fixedParams[pnum], fixedParams[pnum]["synth_val"])
-
-                self.featureList = tf.train.Features(feature=self.featureObject)
-                self.training = tf.train.Example(features=self.featureList)
-                writer.write(self.training.SerializeToString())
-        
-                self.featureList = []
-                self.featureObject = {}
-
+                    self.featureList = []
+                    self.featureObject = {}
 
     def __printRecord__(self, filename):
 
@@ -162,6 +164,7 @@ class tfrecordManager():
 
     def __readOne__(self,filename):
         
+        self.recordsRead = 0
         feature_list = self.__getFeatures__(self.__printRecord__(filename))
         dataset = tf.data.TFRecordDataset(filename)
 
@@ -174,6 +177,7 @@ class tfrecordManager():
     '''Limtiation is that it gets features only once from a element in dataset. I.e., all elements of dataset have same organization'''
     def __readDirectory__(self,dirName):
         
+        self.recordsRead = 0
         path = os.path.abspath(dirName)
         filelist = glob.glob(path + '/*.tfrecord')
 
